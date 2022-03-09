@@ -1,0 +1,71 @@
+name: Daas Automated Testing
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+
+concurrency:
+  group: environment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    env:
+      GitRepoAspNet: https://github.com/puneetg1983/WebCampGit
+      ResourceGroup: DAAS-DevOps-Testing
+    
+    steps:
+    
+    - name: Generate Unique Site Name
+      run: echo SiteName=daasdevops$(date +%s) >> $GITHUB_ENV
+    
+    - name: Login to Azure
+      uses: azure/login@v1
+      continue-on-error: false
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        enable-AzPSSession: true
+    
+    - name: Clearing resource group
+      uses: azure/powershell@v1
+      with:
+        inlineScript: |
+          $resources = az resource list --resource-group ${{ env.ResourceGroup }} | ConvertFrom-Json
+          Write-Host "Deleting Web Apps..."
+          foreach ($resource in $resources) {
+              if ($resource.id -like '*/providers/Microsoft.Web/sites/*') {
+                Write-Host $("  Deleting " + $resource.id)
+                az resource delete --resource-group ${{ env.ResourceGroup }} --ids $resource.id --verbose
+              }
+          }
+          Write-Host "Deleting App Service Plans"
+          foreach ($resource in $resources) {
+              if ($resource.id -like '*/providers/Microsoft.Web/serverfarms/*') {
+                Write-Host $("  Deleting " + $resource.id)
+                az resource delete --resource-group ${{ env.ResourceGroup }} --ids $resource.id --verbose
+              }
+          }
+        
+        azPSVersion: "latest"
+
+    - name: Creating App Service Plan
+      run: |
+        az appservice plan create --name ${{ env.SiteName }} --resource-group ${{ env.ResourceGroup }} --sku B1
+    
+    - name: Creating Web App
+      run: |
+        az webapp create --name ${{ env.SiteName }} --resource-group ${{ env.ResourceGroup }} --plan ${{ env.SiteName }}
+        az webapp config set --resource-group ${{ env.ResourceGroup }} --name ${{ env.SiteName }} --always-on true
+        echo Adding MSBuild App Setting
+        az webapp config appsettings set --resource-group ${{ env.ResourceGroup }} --name ${{ env.SiteName }} --settings MSBUILD_PATH=%MSBUILD_15_DIR%\\msbuild.exe
+    
+    - name: Setting up Github
+      run: |
+        az webapp deployment source config --name ${{ env.SiteName }} --resource-group ${{ env.ResourceGroup }} \
+                --repo-url ${{ env.GitRepoAspNet }} --branch master --manual-integration
