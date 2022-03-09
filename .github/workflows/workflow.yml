@@ -14,13 +14,33 @@ concurrency:
 jobs:
 
   build-and-deploy:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     
     env:
       GitRepoAspNet: https://github.com/puneetg1983/WebCampGit
       ResourceGroup: DAAS-DevOps-Testing
     
     steps:
+    - uses: actions/checkout@v1
+      name: Checkout code
+    
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v1.0.2
+      
+    - name: Restore NuGet Packages
+      run: nuget restore DaaS.sln
+      
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v1.1
+      
+    - name: Build and Publish DaaS Site Extension
+      run: msbuild DaaS.sln /p:Configuration=Release /T:"DiagnosticsExtension"  /p:Platform=x64 /p:DeployOnBuild=true /p:PublishProfile=FolderProfile.pubxml
+      
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: published_webapp
+        path: bin\Release\Publish
     
     - name: Generate Unique Site Name
       run: echo SiteName=daasdevops$(date +%s) >> $GITHUB_ENV
